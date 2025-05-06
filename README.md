@@ -5,7 +5,7 @@ A system for personalized video recommendations, user behavior analysis, and pre
 
 UserCF：https://www.jianshu.com/p/7c5d9c008be9
 
-## UserCF接口文档
+### UserCF接口文档
 
 #### 1. **`LoadDataFromCSV(filepath)`**
 
@@ -13,7 +13,7 @@ UserCF：https://www.jianshu.com/p/7c5d9c008be9
 
 - **参数**:
 
-  - `filepath` (str): CSV文件的路径，文件内容应该包含两列，分别为`user`（用户）和`video_ids`（视频ID）。
+  - `filepath` (str): CSV文件的路径，文件内容应包含两列，分别为 `user`（用户）和 `video_ids`（视频ID）。
 
 - **返回值**: 返回一个预处理过的数据集，格式为用户-视频的映射字典。
 
@@ -96,6 +96,24 @@ UserCF：https://www.jianshu.com/p/7c5d9c008be9
     print(recommendations)
     ```
 
+- **`recommendperson(self, user, N)`**
+
+  - **描述**: 推荐与指定用户最相似的 N 个其他用户。
+
+  - **参数**:
+
+    - `user` (str): 被推荐的用户ID。
+    - `N` (int): 推荐的相似用户个数。
+
+  - **返回值**: 返回一个列表，包含与指定用户相似度最高的 N 个用户，按相似度从高到低排序。
+
+  - **示例**:
+
+    ```python
+    recommended_users = user_cf.recommendperson("User1", 3)
+    print(f"Recommended users similar to User1: {recommended_users}")
+    ```
+
 - **`train(self)`**
 
   - **描述**: 训练模型，计算用户之间的相似度。
@@ -138,5 +156,4 @@ for user in list(train_data.keys())[:5]:
 
 - `LoadDataFromCSV` 和 `PreProcessData` 返回的数据是以字典的形式组织的，用户作为键，视频ID集合作为值。
 - `recommend` 返回一个字典，包含按兴趣度排序的推荐视频。
-
-这个文档提供了完整的 `UserCF` 类的接口及其用法。
+- `recommendperson` 返回一个包含与指定用户相似度最高的 N 个用户的列表。返回的列表是按相似度从高到低排序的。
