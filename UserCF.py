@@ -100,6 +100,19 @@ class UserCF(object):
                 recommends[item] += sim
         return dict(sorted(recommends.items(), key=itemgetter(1), reverse=True)[:N])
 
+    def recommendperson(self, user, N):
+        """
+        推荐与指定用户最相似的N个人
+        :param user: 被推荐的用户
+        :param N: 推荐的相似用户个数
+        :return: 按相似度排序的N个相似用户
+        """
+        # 获取用户与其他用户的相似度，并按相似度从高到低排序
+        similar_users = sorted(self._userSimMatrix[user].items(), key=itemgetter(1), reverse=True)
+        
+        # 返回相似度最高的N个用户
+        return [user for user, sim in similar_users[:N]]
+
     def train(self):
         self.similarity()
 
@@ -121,6 +134,7 @@ if __name__ == "__main__":
     time_start = time.time()
     test_users = list(train.keys())[:5]  # 取前4个用户
     for user in test_users:
+        print(f"Recommended users similar to {user}: {UserCF_model.recommendperson(user, 3)}")
         print(f"Recommendations for {user}: {UserCF_model.recommend(user, 5, 80)}")
 
     # 计算推荐时间
