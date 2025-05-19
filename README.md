@@ -342,3 +342,172 @@ spark-submit generate_recs.py             \
 - Jiashu 相关文章：
   - UserCF https://www.jianshu.com/p/7c5d9c008be9
   - ItemCF https://www.jianshu.com/p/f306a37a7374
+
+
+## `cluster_analysis` 使用说明
+
+> 一站式脚本：清洗 **Data.csv** → 视频 / 用户聚类 → 自动选 *k* → 生成 CSV & PNG。
+
+---
+
+### 目录
+
+1. [项目背景](#项目背景)
+2. [文件结构](#文件结构)
+3. [环境要求](#环境要求)
+4. [安装依赖](#安装依赖)
+5. [快速开始](#快速开始)
+6. [命令行参数说明](#命令行参数说明)
+7. [输出文件说明](#输出文件说明)
+8. [示例可视化](#示例可视化)
+9. [常见问题 FAQ](#常见问题-faq)
+10. [功能拓展建议](#功能拓展建议)
+
+---
+
+### 项目背景
+
+短视频平台需要同时理解 **视频特征** 与 **用户兴趣** 才能做精准推荐。本脚本通过
+
+1. K‑Means 对视频做内容层面的分簇；
+2. 对用户的观看行为做稀疏矩阵 → 降维 → K‑Means 分簇；
+3. 自动选取最优簇数 `k`（silhouette）。
+
+生成的标签及可视化 PNG 可直接投喂给召回 / 排序模型或 BI 看板。
+
+---
+
+### 文件结构
+
+```text
+cluster_analysis.py      # 主脚本（含可视化函数）
+README.md                # 本说明文档
+Data.csv                 # 原始数据 (需自行准备)
+cluster_output/          # 运行后自动生成
+├─ videos_with_clusters.csv
+├─ users_with_clusters.csv
+├─ video_clusters.png
+├─ user_clusters.png
+└─ user_video.pkl        # 稀疏矩阵二进制文件
+```
+
+---
+
+### 环境要求
+
+* Python **3.9+**（脚本以 3.11 测试）
+* 推荐在 **virtualenv / conda** 中运行
+
+#### 主要依赖
+
+| 库            | 版本测试  | 用途                         |
+| ------------ | ----- | -------------------------- |
+| pandas       | ≥1.5  | 数据处理                       |
+| numpy        | ≥1.24 | 数值计算                       |
+| scikit‑learn | ≥1.4  | K‑Means / PCA / SVD / TSNE |
+| matplotlib   | ≥3.7  | 绘图                         |
+| umap‑learn   | ≥0.5  | *可选*，另一个降维方案               |
+
+---
+
+### 安装依赖
+
+```bash
+# 创建虚拟环境（可选）
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
+# 安装依赖
+pip install -r <(cat <<EOF
+pandas>=1.5
+numpy>=1.24
+scikit-learn>=1.4
+matplotlib>=3.7
+umap-learn>=0.5 # 可选
+EOF
+)
+```
+
+或直接：
+
+```bash
+pip install pandas scikit-learn numpy matplotlib umap-learn
+```
+
+---
+
+### 快速开始
+
+1. 将原始 `Data.csv` 放在脚本同级目录。
+2. 运行：
+
+   ```bash
+   python cluster_analysis.py --path Data.csv --plot
+   ```
+
+   * 若未指定 `--video_k` / `--user_k`，脚本会自动在 \[2,10] 内寻找 silhouette 分数最高的 k。
+   * 加 `--out_dir my_output` 可自定义输出路径。
+
+> **示例完整命令**
+> `python cluster_analysis.py --path Data.csv --video_k 6 --user_k 8 --plot --out_dir result`
+
+---
+
+### 命令行参数说明
+
+| 参数          | 默认               | 说明             |
+| ----------- | ---------------- | -------------- |
+| `--path`    | `Data.csv`       | 原始数据文件路径       |
+| `--video_k` | *auto*           | 视频聚类簇数，不填则自动寻找 |
+| `--user_k`  | *auto*           | 用户聚类簇数，不填则自动寻找 |
+| `--plot`    | *False*          | 开启后输出 PNG 可视化  |
+| `--out_dir` | `cluster_output` | 所有结果输出目录       |
+
+---
+
+### 输出文件说明
+
+| 文件                         | 内容                                        |
+| -------------------------- | ----------------------------------------- |
+| `videos_with_clusters.csv` | 每条视频原始字段 + `video_cluster` 标签             |
+| `users_with_clusters.csv`  | 用户 ID + `user_cluster` 标签                 |
+| `video_clusters.png`       | PCA 2‑D / t‑SNE 散点图（颜色=簇）                 |
+| `user_clusters.png`        | SVD+ t‑SNE 2‑D 散点图                        |
+| `user_video.pkl`           | 稀疏矩阵 (users × videos)，`pd.read_pickle` 读取 |
+
+---
+
+### 示例可视化
+
+<div align="center">
+<img src="cluster_output/video_clusters.png" width="45%" alt="视频聚类示例">
+<img src="cluster_output/user_clusters.png" width="45%" alt="用户聚类示例">
+</div>
+
+* 点大小按 `length`，颜色按簇；
+* 可通过改脚本内 `plot_video_clusters` / `plot_user_clusters` 函数切换 UMAP、调整点样式。
+
+---
+
+### 常见问题 FAQ
+
+| 问题                                               | 解决方案                                                           |
+| ------------------------------------------------ | -------------------------------------------------------------- |
+| **脚本报 `ImportError: cannot import name 'TSNE'`** | 确认 scikit‑learn ≥0.24；或安装 `pip install scikit-learn --upgrade` |
+| **运行卡在 t‑SNE**                                   | t‑SNE 本就慢；数据大时可改用 `method="pca"`；或降采样后可视化                      |
+| **内存不足**                                         | 稀疏矩阵列太多：① 先过滤低观看量视频；② 增加机器内存；③ 用分布式推荐框架                        |
+| **如何把聚类标签加入推荐系统？**                               | 在特征工程阶段： (user\_id, video\_id) join 各自簇标签，再喂给排序模型              |
+
+---
+
+### 功能拓展建议
+
+1. **改用 GMM / DBSCAN** 识别非球形簇。
+2. **引入时间窗**：对近 30 天数据独立聚类，捕捉热点迁移。
+3. **加入更多视频特征**：封面 CTR、完播率、BGM 类型、作者粉丝量等。
+4. **交互式可视化**：`plotly.express.scatter` / `streamlit` 即时筛选。
+5. **CI/CD**：写 Makefile 或 GitHub Actions，自动跑脚本 & 部署 PNG 到对象存储。
+
+---
+
+> **如需进一步支持** —— 包括集成模型训练、AB Test 设计、或迁移到 Spark/Flink — 直接联系脚本作者（ChatGPT）即可。
