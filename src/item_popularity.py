@@ -1,17 +1,20 @@
+# src/item_popularity.py
+
 import glob
 import pandas as pd
 
 class ItemPopularityCalculator:
     """
-    只处理宽表格式：
-      userId,itemId
-      1,61; 307; 528; 592; 868; 976
-    计算每个 itemId 被多少不同用户推荐（热度）。
+    针对宽表格式（userId,itemId1;itemId2;...）计算物品热度。
+    热度定义为不同用户推荐或交互该物品的用户数量。
     """
     def __init__(self, input_pattern: str, output_file: str):
         """
-        :param input_pattern: glob 模式匹配文件，如 "output/F4.csv" 或 "output/parts-*.csv"
-        :param output_file: 保存结果路径，如 "output/F5.csv"
+        初始化 ItemPopularityCalculator。
+
+        参数:
+            input_pattern (str): 输入文件的 glob 模式，示例 "output/Retrieval.csv" 或 "output/parts-*.csv"。
+            output_file (str): 结果保存路径，示例 "output/F5.csv"。
         """
         self.input_pattern = input_pattern
         self.output_file = output_file
@@ -19,46 +22,74 @@ class ItemPopularityCalculator:
         self.item_pop = None
 
     def load_data(self):
-        """读取所有匹配的文件并合并为一个 DataFrame"""
+        """
+        加载并合并所有匹配的 CSV 文件。
+
+        读取 glob 匹配到的文件列表，将它们读取为 DataFrame 并纵向合并。
+        返回 self 以支持链式调用。
+        """
         files = glob.glob(self.input_pattern)
         if not files:
-            raise FileNotFoundError(f"没有匹配到任何文件: {self.input_pattern}")
+            raise FileNotFoundError(f"未找到匹配的文件: {self.input_pattern}")
+        # 批量读取并合并
         dfs = [pd.read_csv(f) for f in files]
         self.df = pd.concat(dfs, ignore_index=True)
         return self
 
     def explode_items(self):
-        """把 itemId 列按分号拆分，并展开为多行"""
-        # 1) 拆分
+        """
+        将 itemId 列按分号拆分并展开为多行。
+
+        步骤:
+          1. 使用 str.split 将 itemId 拆分为列表，存入临时列 item_list；
+          2. 调用 explode 方法将列表展开为多行；
+          3. 对 item_list 元素 strip，生成新的 itemId 列；
+          4. 丢弃临时列，仅保留 ['userId','itemId']。
+        返回 self。
+        """
+        # 拆分为列表
         self.df['item_list'] = self.df['itemId'].str.split(';')
-        # 2) 展开
+        # 列表展开
         self.df = self.df.explode('item_list').reset_index(drop=True)
-        # 3) 去除空格并重命名列
+        # 去除空白并重写 itemId
         self.df['itemId'] = self.df['item_list'].str.strip()
-        # 4) 只保留 userId, itemId 两列
+        # 保留必要列
         self.df = self.df[['userId', 'itemId']]
         return self
 
     def compute_popularity(self):
-        """按 itemId 分组，统计不同 userId 的数量"""
+        """
+        统计每个 itemId 对应的唯一 userId 数量，作为热度指标。
+
+        返回 self，并将结果保存到 self.item_pop。
+        """
         self.item_pop = (
             self.df
-                .groupby('itemId')['userId']
-                .nunique()
-                .reset_index(name='user_count')
-                .sort_values('user_count', ascending=False)
+            .groupby('itemId')['userId']
+            .nunique()
+            .reset_index(name='user_count')
+            .sort_values('user_count', ascending=False)
         )
         return self
 
     def save(self):
-        """将热度结果保存为 CSV"""
+        """
+        将热度统计结果保存为 CSV 文件。
+
+        若未执行 compute_popularity，将抛出异常。
+        """
         if self.item_pop is None:
-            raise ValueError("请先调用 compute_popularity()")
+            raise ValueError("请先调用 compute_popularity() 生成数据")
+        # 保存到 CSV，不包含索引
         self.item_pop.to_csv(self.output_file, index=False)
         return self
 
     def run(self):
-        """一键执行完整流程"""
+        """
+        一键执行完整流程：加载数据 -> 拆分展开 -> 计算热度 -> 保存结果。
+
+        返回 self。
+        """
         return (
             self.load_data()
                 .explode_items()
@@ -66,13 +97,12 @@ class ItemPopularityCalculator:
                 .save()
         )
 
-
 if __name__ == '__main__':
-    calculator = ItemPopularityCalculator(
-        input_pattern='output/Retrieval.csv',    # 或 "output/parts-*.csv"
+    calc = ItemPopularityCalculator(
+        input_pattern='output/Retrieval.csv',  # 或 'output/parts-*.csv'
         output_file='output/F5.csv'
     )
-    calculator.run()
+    calc.run()
     print("已生成 F5.csv，字段说明：")
-    print("  itemId      视频 ID")
-    print("  user_count  被推荐的不同用户数（热度）")
+    print("  itemId     视频ID")
+    print("  user_count 不同用户推荐数（热度）")

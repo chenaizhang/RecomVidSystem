@@ -1,3 +1,5 @@
+# src/userCF.py
+
 import pandas as pd
 from collections import defaultdict
 from operator import itemgetter
@@ -6,97 +8,162 @@ import os
 import csv
 
 
-def LoadDataFromCSV(filepath):
+def load_data_from_csv(filepath):
     """
-    从CSV文件加载数据，格式为 userId, itemId
-    :param filepath: CSV文件路径
-    :return: 处理后的数据集
+    加载用户-物品交互数据，并将每条记录拆分为单个用户-物品对。
+
+    Args:
+        filepath (str): 待加载的 CSV 文件路径，文件应包含 'userId' 和 'itemId' 两列，
+                        其中 'itemId' 为以分号分隔的多个物品 ID。
+
+    Returns:
+        dict[str, set[str]]: 用户到物品集合的映射，键为用户 ID，值为该用户交互过的物品 ID 集合。
     """
-    data = pd.read_csv(filepath)
-    train = []
-    for _, row in data.iterrows():
-        user = row['userId']
-        item_list = row['itemId'].split(';')
-        for item in item_list:
-            train.append([user, item])
-    return PreProcessData(train)
+    df = pd.read_csv(filepath)
+    pairs = []
+    for _, row in df.iterrows():
+        uid = row['userId']
+        # 将分号分隔的物品列表拆分为单个项
+        for iid in row['itemId'].split(';'):
+            iid = iid.strip()
+            if iid:
+                pairs.append((uid, iid))
+    return preprocess_data(pairs)
 
 
-def PreProcessData(originData):
+def preprocess_data(pairs):
     """
-    将数据处理为用户-视频的映射字典
-    :param originData: 原始数据（用户与视频ID对）
-    :return: 用户-视频映射字典
+    将用户-物品对列表转换为映射表，用于后续协同过滤计算。
+
+    Args:
+        pairs (list[tuple[str, str]]): 原始的用户-物品对列表。
+
+    Returns:
+        dict[str, set[str]]: 用户到物品集合的映射字典。
     """
-    trainData = dict()
-    for user, item in originData:
-        trainData.setdefault(user, set()).add(item)
-    return trainData
+    mapping = {}
+    for uid, iid in pairs:
+        mapping.setdefault(uid, set()).add(iid)
+    return mapping
 
 
-class UserCF(object):
-    """ 用户基于协同过滤的推荐算法实现 """
-    def __init__(self, trainData, similarity="cosine"):
-        self._trainData = trainData
-        self._similarity = similarity
-        self._userSimMatrix = dict()
+class UserCF:
+    """
+    基于用户的协同过滤推荐算法实现。
 
-    def similarity(self):
-        # 构建反向索引：item -> users
+    Attributes:
+        train_data (dict[str, set[str]]): 用户到物品集合的映射。
+        similarity (str): 相似度计算方法，可选 'cosine' 或 'iif'。
+        user_sim_matrix (dict[str, dict[str, float]]): 用户相似度矩阵，键为用户对 (u, v)，值为相似度分值。
+    """
+    def __init__(self, train_data, similarity='cosine'):
+        self.train_data = train_data
+        self.similarity = similarity
+        self.user_sim_matrix = {}
+
+    def _build_similarity(self):
+        """
+        构建用户相似度矩阵：
+          1. 生成物品到用户的倒排索引；
+          2. 计算用户共现矩阵（共现次数或 IIF 方式加权）；
+          3. 对共现计数进行余弦归一化，得到用户相似度。
+        """
+        # 倒排索引：item_id -> set(user_id)
         item_user = defaultdict(set)
-        for user, items in self._trainData.items():
-            for item in items:
-                item_user[item].add(user)
+        for uid, items in self.train_data.items():
+            for iid in items:
+                item_user[iid].add(uid)
 
-        # 计算共现矩阵
+        # 累计用户共现次数
         for users in item_user.values():
-            for u in users:
-                for v in users:
-                    if u == v: continue
-                    self._userSimMatrix.setdefault(u, defaultdict(int))
-                    if self._similarity == "cosine":
-                        self._userSimMatrix[u][v] += 1
-                    else:  # iif
-                        self._userSimMatrix[u][v] += 1. / math.log(1 + len(users))
+            user_list = list(users)
+            for i, u in enumerate(user_list):
+                for v in user_list[i+1:]:
+                    # 初始化行
+                    self.user_sim_matrix.setdefault(u, defaultdict(float))
+                    self.user_sim_matrix.setdefault(v, defaultdict(float))
+                    if self.similarity == 'cosine':
+                        weight = 1.0
+                    else:  # IIF 加权
+                        weight = 1.0 / math.log(1 + len(users))
+                    self.user_sim_matrix[u][v] += weight
+                    self.user_sim_matrix[v][u] += weight
 
-        # 归一化
-        for u, related in self._userSimMatrix.items():
-            nu = len(self._trainData[u])
+        # 余弦归一化
+        for u, related in self.user_sim_matrix.items():
+            nu = len(self.train_data.get(u, []))
             for v, cuv in related.items():
-                nv = len(self._trainData[v])
-                self._userSimMatrix[u][v] = cuv / math.sqrt(nu * nv)
+                nv = len(self.train_data.get(v, []))
+                if nu > 0 and nv > 0:
+                    self.user_sim_matrix[u][v] = cuv / math.sqrt(nu * nv)
+                else:
+                    self.user_sim_matrix[u][v] = 0.0
 
     def train(self):
-        self.similarity()
+        """
+        计算并存储用户相似度矩阵，必须在调用推荐方法前执行。
+        """
+        self._build_similarity()
 
-    def recommend(self, user, N, K):
-        """ 推荐物品 """
-        recommends = defaultdict(float)
-        interacted = self._trainData.get(user, set())
-        for v, sim in sorted(self._userSimMatrix.get(user, {}).items(), key=itemgetter(1), reverse=True)[:K]:
-            for item in self._trainData[v]:
-                if item in interacted: continue
-                recommends[item] += sim
-        return dict(sorted(recommends.items(), key=itemgetter(1), reverse=True)[:N])
+    def recommend(self, user, N=5, K=10):
+        """
+        为指定用户推荐物品。
 
-    def recommendperson(self, user, N):
-        """ 推荐相似用户 """
-        sims = self._userSimMatrix.get(user, {})
-        return [other for other, _ in sorted(sims.items(), key=itemgetter(1), reverse=True)[:N]]
+        Args:
+            user (str): 目标用户 ID。
+            N (int): 返回的推荐物品数量。
+            K (int): 参与计算的最相似用户数量。
+
+        Returns:
+            dict[str, float]: 推荐物品及其累加相似度得分，按得分降序排序后截取前 N 项。
+        """
+        rank = defaultdict(float)
+        interacted = self.train_data.get(user, set())
+        # 选取 K 个最相似用户
+        neighbors = sorted(
+            self.user_sim_matrix.get(user, {}).items(),
+            key=itemgetter(1), reverse=True
+        )[:K]
+
+        # 汇总推荐分数
+        for v, sim in neighbors:
+            for iid in self.train_data.get(v, []):
+                if iid in interacted:
+                    continue
+                rank[iid] += sim
+
+        # 返回前 N 个物品
+        return dict(sorted(rank.items(), key=itemgetter(1), reverse=True)[:N])
+
+    def recommend_users(self, user, N=5):
+        """
+        为指定用户推荐相似用户。
+
+        Args:
+            user (str): 目标用户 ID。
+            N (int): 返回的相似用户数量。
+
+        Returns:
+            list[str]: 按相似度降序排序的用户列表，长度不超过 N。
+        """
+        sims = self.user_sim_matrix.get(user, {})
+        return [uid for uid, _ in sorted(sims.items(), key=itemgetter(1), reverse=True)[:N]]
 
 
-def save_recommendperson_results(filepath, model, users, N):
+def save_similar_users(filepath, model, users, N=5):
     """
-    将 recommendperson 结果保存到 CSV 文件
-    :param filepath: 输出文件路径
-    :param model: 已训练的 UserCF 模型
-    :param users: 用户列表
-    :param N: 推荐相似用户数量
+    将推荐的相似用户列表保存至 CSV 文件。
+
+    Args:
+        filepath (str): 输出 CSV 文件路径。
+        model (UserCF): 已训练的 UserCF 模型实例。
+        users (list[str]): 待处理的用户 ID 列表。
+        N (int): 为每个用户推荐的相似用户数量。
     """
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
-    with open(filepath, mode='w', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
+    with open(filepath, mode='w', newline='', encoding='utf-8') as fw:
+        writer = csv.writer(fw)
         writer.writerow(['userId', 'similarUsers'])
-        for user in users:
-            similar = model.recommendperson(user, N)
-            writer.writerow([user, ';'.join(map(str, similar))])
+        for uid in users:
+            similar = model.recommend_users(uid, N)
+            writer.writerow([uid, ';'.join(map(str, similar))])

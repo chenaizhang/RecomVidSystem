@@ -1,9 +1,7 @@
 import numpy as np
-import os
-import csv
 import pandas as pd
 import time
-from usercf import LoadDataFromCSV, UserCF, save_recommendperson_results
+from usercf import load_data_from_csv, UserCF, save_similar_users
 from itemcf_wals import WALSRecommender
 from item_popularity import ItemPopularityCalculator
 from cluster_analysis import ClusteringPipeline
@@ -11,7 +9,7 @@ from cluster_analysis import ClusteringPipeline
 if __name__ == "__main__":
     # F3 为特定用户推荐相似兴趣的用户群体。
     # 加载训练数据
-    train = LoadDataFromCSV("data/Data_ui.csv")
+    train = load_data_from_csv("data/Data_ui.csv")
     print(f"train data size: {len(train)}")
 
     # 训练模型
@@ -24,16 +22,8 @@ if __name__ == "__main__":
     test_users = list(train.keys())
 
     # 保存相似用户推荐结果
-    save_recommendperson_results("output/F3.csv", model, test_users, N=10)
+    save_similar_users("output/F3.csv", model, test_users, N=10)
     print("相似用户推荐结果已保存到 output/F3.csv")
-
-    # # 打印示例结果
-    # for user in test_users:
-    #     similar = model.recommendperson(user, 10)
-    #     print(f"Users similar to {user}: {similar}")
-    # for user in test_users:
-    #     recs = model.recommend(user, 5, 80)
-    #     print(f"Recommendations for {user}: {recs}")
 
     print("--- " * 10)
 
@@ -48,7 +38,7 @@ if __name__ == "__main__":
     print("正在生成并保存宽表检索结果...")
     recommender.save_retrieval(top_n=100, output_file='output/Retrieval.csv')
 
-
+    print("--- " * 10)
 
     # F5 预测视频未来的观看热度变化。
     calculator = ItemPopularityCalculator(
@@ -60,7 +50,7 @@ if __name__ == "__main__":
     print("  itemId      视频 ID")
     print("  user_count  被推荐的不同用户数（热度）")
 
-    
+    print("--- " * 10)
     
     # F6 对视频进行聚类，找出具有相似观看用户的视频。
     # F7 对用户进行聚类，找出具有相似观看兴趣的用户群体。
