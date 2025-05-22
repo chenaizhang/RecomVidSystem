@@ -6,6 +6,7 @@ import time
 from usercf import LoadDataFromCSV, UserCF, save_recommendperson_results
 from itemcf_wals import WALSRecommender
 from item_popularity import ItemPopularityCalculator
+from cluster_analysis import ClusteringPipeline
 
 if __name__ == "__main__":
     # F3 为特定用户推荐相似兴趣的用户群体。
@@ -60,3 +61,14 @@ if __name__ == "__main__":
     print("  user_count  被推荐的不同用户数（热度）")
 
     
+    
+    # F6 对视频进行聚类，找出具有相似观看用户的视频。
+    # F7 对用户进行聚类，找出具有相似观看兴趣的用户群体。
+    pipeline = ClusteringPipeline(
+        user_input_path='data/user.csv',
+        item_input_path='data/item.csv',
+        output_dir='output',
+        n_user_clusters=4,
+        n_item_clusters=30
+    )
+    pipeline.run()
