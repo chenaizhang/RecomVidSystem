@@ -1,4 +1,3 @@
-import numpy as np
 import pandas as pd
 import time
 from usercf import load_data_from_csv, UserCF, save_similar_users
@@ -9,7 +8,7 @@ from cluster_analysis import ClusteringPipeline
 if __name__ == "__main__":
     # F3 为特定用户推荐相似兴趣的用户群体。
     # 加载训练数据
-    train = load_data_from_csv("data/Data_ui.csv")
+    train = load_data_from_csv("data/user.csv")
     print(f"train data size: {len(train)}")
 
     # 训练模型
@@ -29,7 +28,7 @@ if __name__ == "__main__":
 
     # F4 根据用户历史浏览记录，为其推荐相关视频。
     print("正在读取数据...")
-    data = pd.read_csv('data/Data_ui.csv')
+    data = pd.read_csv('data/user.csv')
     recommender = WALSRecommender(num_factors=32)
     print("正在训练模型...")
     recommender.train(data, num_iterations=20, learning_rate=0.001)
@@ -42,7 +41,7 @@ if __name__ == "__main__":
 
     # F5 预测视频未来的观看热度变化。
     calculator = ItemPopularityCalculator(
-        input_pattern='output/Retrieval.csv',    # 或 "output/parts-*.csv"
+        input_pattern='output/Retrieval.csv',  
         output_file='output/F5.csv'
     )
     calculator.run()
