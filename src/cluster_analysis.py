@@ -42,7 +42,7 @@ class ClusteringPipeline:
         初始化 ClusteringPipeline 实例。
 
         参数:
-            user_input_path (str)：用户 CSV 文件路径，需包含 userId, itemId, followId 等字段。
+            user_input_path (str)：用户 CSV 文件路径，需包含 userId, itemId, following 等字段。
             item_input_path (str)：物品 CSV 文件路径，需包含 length, comment, like, watch, share, userId 等字段。
             output_dir (str)：输出结果目录。
             n_user_clusters (int)：用户聚类簇数。
@@ -96,7 +96,7 @@ class ClusteringPipeline:
         构建用户特征：年龄、粉丝数、性别编码、观看视频数与关注数。
 
         性别编码规则：M -> 0, F -> 1。
-        num_watched 与 num_follow 分别统计 itemId 与 followId 列的分号分隔计数。
+        num_watched 与 num_follow 分别统计 itemId 与 following 列的分号分隔计数。
         """
         df = self.users.copy()
         # 性别映射
@@ -104,7 +104,7 @@ class ClusteringPipeline:
         # 统计观看视频数
         df['num_watched'] = self._count_splits(df['itemId'])
         # 统计关注数
-        df['num_follow'] = self._count_splits(df['followId'])
+        df['num_follow'] = df['following']
         # 筛选特征列
         self.user_features = df[['age', 'fans', 'gender_code', 'num_watched', 'num_follow']]
 

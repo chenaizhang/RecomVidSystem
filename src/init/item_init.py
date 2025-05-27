@@ -8,8 +8,15 @@ def parse_duration(dur_str):
     例如 "3:45" -> 225
     """
     try:
-        minutes, seconds = dur_str.split(':')
-        return int(minutes) * 60 + int(seconds)
+        parts = list(map(int, dur_str.split(':')))
+        if len(parts) == 2:
+            minutes, seconds = parts
+            return minutes * 60 + seconds
+        elif len(parts) == 3:
+            hours, minutes, seconds = parts
+            return hours * 3600 + minutes * 60 + seconds
+        else:
+            return pd.NA
     except:
         return pd.NA
 
@@ -66,14 +73,12 @@ def main():
         # 计算本视频应分配的用户数
         if sum_watch_in_cat > 0 and users_in_cat:
             ratio = row['watch'] / sum_watch_in_cat
-            # 注意乘 100 以减小稀疏性
-            k = round(len(users_in_cat) * 100 * ratio)
-            # 限制人数在 [20, 300]
-            k = max(20, min(k, 300))
+            k = round(len(users_in_cat) * 100 * ratio)  # 放大比例减少稀疏
+            k = max(20, min(k, 100))  # 限定用户数范围
         else:
             k = 0
 
-        # 随机抽样
+        # 随机抽样并去重
         if k > 0:
             if k <= len(users_in_cat):
                 assigned = random.sample(users_in_cat, k)
@@ -81,6 +86,8 @@ def main():
                 assigned = random.choices(users_in_cat, k=k)
         else:
             assigned = []
+
+        assigned = list(set(assigned))  # 去重
 
         # 生成记录
         records.append({
