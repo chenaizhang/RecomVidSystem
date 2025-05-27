@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # 短视频推荐系统-数据采集模块
 
 ## 项目简介
@@ -131,7 +130,3 @@ with open(out_file, 'a', encoding='utf-8-sig', newline='') as f:
 - F4：基于浏览记录的视频推荐
 - F5：视频热度变化预测
 - F6/F7：视频与用户聚类分析
-=======
-# RecomVidSystem
-A system for personalized video recommendations, user behavior analysis, and predictive video popularity based on clustering techniques.
->>>>>>> edb71779afff92b44efc44c83c6b884f689691e4
