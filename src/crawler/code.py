@@ -102,12 +102,11 @@ def run(url):
     except Exception as e:
         print('error')
         print(e)
-        print(i)
-        print(total)
+        print(f"mid: {mid} total: {total}")
         return
     with lock:
         result.append(users)  # 加锁保证多线程写入安全
-        print(i)
+        print(f"processed mid {mid}")
         print(total)
         total += 1
 
