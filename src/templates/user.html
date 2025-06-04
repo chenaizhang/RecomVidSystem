@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>{{ item.name }}</h1>
+<p>视频ID: {{ item.itemId }}</p>
+<p>播放量: {{ item.watch }}</p>
+<p>时长: {{ item.length }}</p>
+<p>评论数: {{ item.comment }}</p>
+<p>点赞数: {{ item.like }}</p>
+<p>分享量: {{ item.share }}</p>
+<p>
+  <a href="{{ url_for('user', index=(index-1)%total) }}">上一条</a>
+  <a href="{{ url_for('user', index=(index+1)%total) }}">下一条</a>
+</p>
+<script>
+let startX;
+document.addEventListener('touchstart', e => startX = e.touches[0].clientX);
+document.addEventListener('touchend', e => {
+  let dx = e.changedTouches[0].clientX - startX;
+  if (dx > 50) window.location = '{{ url_for('user', index=(index-1)%total) }}';
+  if (dx < -50) window.location = '{{ url_for('user', index=(index+1)%total) }}';
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft') window.location = '{{ url_for('user', index=(index-1)%total) }}';
+  if (e.key === 'ArrowRight') window.location = '{{ url_for('user', index=(index+1)%total) }}';
+});
+</script>
+{% endblock %}

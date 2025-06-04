@@ -146,3 +146,15 @@ if __name__ == '__main__':
 ---
 
 更多详细说明请参阅各模块源代码中的文档字符串。
+
+### Web Interface
+
+A simple Flask web app allows browsing items and running pipeline steps.
+Install Flask and start the server:
+
+```bash
+pip install flask
+python src/web.py
+```
+
+Navigate to `http://localhost:5000` for the user page and `/admin` for the admin panel.

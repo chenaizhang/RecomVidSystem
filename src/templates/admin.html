@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>后台管理</h1>
+<form method="post">
+  <button name="action" value="usercf" type="submit">运行协同过滤推荐</button>
+  <button name="action" value="wals" type="submit">运行 WALS 推荐</button>
+  <button name="action" value="popularity" type="submit">计算视频热度</button>
+  <button name="action" value="clustering" type="submit">执行聚类分析</button>
+</form>
+{% if result %}
+<h3>{{ result_name }} 结果预览</h3>
+{{ result | safe }}
+{% endif %}
+{% endblock %}
