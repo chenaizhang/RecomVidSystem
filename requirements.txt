@@ -1,0 +1,11 @@
+# Python dependencies for RecomVidSystem
+pandas
+numpy
+scikit-learn
+tensorflow
+requests
+Flask
+Flask-SQLAlchemy
+Flask-Login
+SQLAlchemy
+Werkzeug
