@@ -1,7 +1,6 @@
 # src/itemcf_wals.py
 
 import os
-import csv
 import time
 import pandas as pd
 import numpy as np
@@ -52,6 +51,12 @@ class WALSRecommender:
         self.user_bias = None
         self.item_bias = None
         self.data = None
+        # 预计算映射及索引以提升推荐效率
+        self._user_set: set[str] | None = None
+        self._user_index: dict[str, int] | None = None
+        self._item_index: dict[str, int] | None = None
+        self._watched_indices: dict[str, list[int]] | None = None
+        self._item_decoder: np.ndarray | None = None
 
     def prepare_data(self, data: pd.DataFrame) -> tf.sparse.SparseTensor:
         """
@@ -86,6 +91,19 @@ class WALSRecommender:
         n_users = len(self.user_encoder.classes_)
         n_items = len(self.item_encoder.classes_)
 
+        # 预计算映射，便于后续快速查询
+        self._user_set = set(self.user_encoder.classes_)
+        self._user_index = {u: i for i, u in enumerate(self.user_encoder.classes_)}
+        self._item_index = {i: j for j, i in enumerate(self.item_encoder.classes_)}
+        self._item_decoder = self.item_encoder.inverse_transform(np.arange(n_items))
+
+        # 每个用户已观看 item 索引
+        watch_map = exploded.groupby('userId')['itemId'].apply(list).to_dict()
+        self._watched_indices = {
+            uid: [self._item_index[it] for it in items if it in self._item_index]
+            for uid, items in watch_map.items()
+        }
+
         # 构建稀疏矩阵索引和值
         coords = np.column_stack((user_indices, item_indices))
         values = np.ones_like(user_indices, dtype=np.float32)
@@ -111,6 +129,7 @@ class WALSRecommender:
         sparse_tensor = self.prepare_data(data)
         n_users = len(self.user_encoder.classes_)
         n_items = len(self.item_encoder.classes_)
+        dense_truth = tf.cast(tf.sparse.to_dense(sparse_tensor), tf.float32)
 
         # 初始化因子和偏置
         user_factors = tf.Variable(
@@ -139,7 +158,7 @@ class WALSRecommender:
                 # 计算损失
                 loss = self._compute_loss(
                     preds,
-                    sparse_tensor,
+                    dense_truth,
                     user_factors,
                     item_factors,
                     user_bias,
@@ -164,7 +183,7 @@ class WALSRecommender:
     def _compute_loss(
         self,
         preds: tf.Tensor,
-        sparse: tf.sparse.SparseTensor,
+        dense_truth: tf.Tensor,
         uf: tf.Variable,
         if_: tf.Variable,
         ub: tf.Variable,
@@ -175,13 +194,12 @@ class WALSRecommender:
 
         参数:
             preds (tf.Tensor)：预测交互矩阵。
-            sparse (tf.sparse.SparseTensor)：真实交互稀疏张量。
+            dense_truth (tf.Tensor)：真实交互稠密矩阵。
             uf, if_, ub, ib (tf.Variable)：因子矩阵与偏置向量。
 
         返回:
             tf.Tensor：标量损失。
         """
-        dense_truth = tf.cast(tf.sparse.to_dense(sparse), tf.float32)
         # 均方误差
         mse_loss = tf.reduce_mean(tf.square(preds - dense_truth))
         # L2 正则化
@@ -209,10 +227,10 @@ class WALSRecommender:
             list[tuple[str, float]]：(物品ID, 归一化得分) 列表。
         """
         # 不存在的用户直接返回空
-        if user_id not in self.user_encoder.classes_:
+        if self._user_set is None or user_id not in self._user_set:
             return []
 
-        uidx = self.user_encoder.transform([user_id])[0]
+        uidx = self._user_index[user_id]
         # 计算得分：项乘用户因子 + 偏置
         raw_scores = (
             self.item_factors @ self.user_factors[uidx]
@@ -221,11 +239,7 @@ class WALSRecommender:
         )
 
         # 排除已交互物品
-        watched = set(self.data[self.data['userId'] == user_id]['itemId'])
-        watched_idx = [
-            self.item_encoder.transform([itm])[0]
-            for itm in watched if itm in self.item_encoder.classes_
-        ]
+        watched_idx = self._watched_indices.get(user_id, [])
         if watched_idx:
             raw_scores[watched_idx] = -np.inf
 
@@ -243,7 +257,7 @@ class WALSRecommender:
 
         # 解码并返回
         return [
-            (self.item_encoder.inverse_transform([idx])[0], float(raw_scores[idx]))
+            (self._item_decoder[idx], float(raw_scores[idx]))
             for idx in sorted_top
         ]
 
@@ -268,13 +282,14 @@ class WALSRecommender:
         scores += self.user_bias[:, None] + self.item_bias[None, :]
 
         # 排除历史交互
-        watch_map = self.data.groupby('userId')['itemId'].apply(list).to_dict()
-        user_idx = {u: i for i, u in enumerate(self.user_encoder.classes_)}
-        item_idx = {i: j for j, i in enumerate(self.item_encoder.classes_)}
-        for uid, items in watch_map.items():
-            u_i = user_idx[uid]
-            mask_i = [item_idx[it] for it in items if it in item_idx]
-            scores[u_i, mask_i] = -np.inf
+        rows = []
+        cols = []
+        for uid, items in self._watched_indices.items():
+            u_i = self._user_index[uid]
+            rows.extend([u_i] * len(items))
+            cols.extend(items)
+        if rows:
+            scores[np.array(rows), np.array(cols)] = -np.inf
 
         # 行归一化
         finite = np.isfinite(scores)
@@ -293,8 +308,7 @@ class WALSRecommender:
             topc = cand[u_i]
             ordered = topc[np.argsort(scores[u_i, topc])[::-1]]
             for idx in ordered:
-                it = self.item_encoder.inverse_transform([idx])[0]
-                lines.append(f"{user},{it},{scores[u_i, idx]:.4f}")
+                lines.append(f"{user},{self._item_decoder[idx]},{scores[u_i, idx]:.4f}")
 
         with open(output_file, 'w', newline='') as f:
             f.write('\n'.join(lines))
@@ -319,13 +333,14 @@ class WALSRecommender:
 
         scores = self.user_factors @ self.item_factors.T
         scores += self.user_bias[:, None] + self.item_bias[None, :]
-        watch_map = self.data.groupby('userId')['itemId'].apply(list).to_dict()
-        user_idx = {u: i for i, u in enumerate(self.user_encoder.classes_)}
-        item_idx = {i: j for j, i in enumerate(self.item_encoder.classes_)}
-        for uid, items in watch_map.items():
-            u_i = user_idx[uid]
-            mask_i = [item_idx[it] for it in items if it in item_idx]
-            scores[u_i, mask_i] = -np.inf
+        rows = []
+        cols = []
+        for uid, items in self._watched_indices.items():
+            u_i = self._user_index[uid]
+            rows.extend([u_i] * len(items))
+            cols.extend(items)
+        if rows:
+            scores[np.array(rows), np.array(cols)] = -np.inf
 
         finite = np.isfinite(scores)
         mins = np.nanmin(np.where(finite, scores, np.nan), axis=1)
@@ -340,7 +355,7 @@ class WALSRecommender:
         for u_i, user in enumerate(self.user_encoder.classes_):
             topc = cand[u_i]
             ordered = topc[np.argsort(scores[u_i, topc])[::-1]]
-            items = self.item_encoder.inverse_transform(ordered)
+            items = [self._item_decoder[idx] for idx in ordered]
             lines.append(f"{user},{'; '.join(items)}")
 
         with open(output_file, 'w', newline='') as f:
