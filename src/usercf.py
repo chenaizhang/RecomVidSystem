@@ -3,6 +3,7 @@
 import pandas as pd
 from collections import defaultdict
 from operator import itemgetter
+import heapq
 import math
 import os
 import csv
@@ -10,30 +11,36 @@ import csv
 
 def load_data_from_csv(filepath):
     """
-    加载用户-物品交互数据，并将每条记录拆分为单个用户-物品对。
+    加载用户-物品交互数据，使用 Pandas 向量化操作高效转换为
+    ``{userId: {itemId}}`` 形式。
 
     Args:
-        filepath (str): 待加载的 CSV 文件路径，文件应包含 'userId' 和 'itemId' 两列，
-                        其中 'itemId' 为以分号分隔的多个物品 ID。
+        filepath (str): CSV 文件路径，文件包含 ``userId`` 和
+            ``itemId`` 列，其中 ``itemId`` 为以 ``;`` 分隔的多个物品 ID。
 
     Returns:
-        dict[str, set[str]]: 用户到物品集合的映射，键为用户 ID，值为该用户交互过的物品 ID 集合。
+        dict[str, set[str]]: 用户到物品集合的映射。
     """
-    df = pd.read_csv(filepath)
-    pairs = []
-    for _, row in df.iterrows():
-        uid = row['userId']
-        # 将分号分隔的物品列表拆分为单个项
-        for iid in row['itemId'].split(';'):
-            iid = iid.strip()
-            if iid:
-                pairs.append((uid, iid))
-    return preprocess_data(pairs)
+    df = pd.read_csv(filepath, usecols=["userId", "itemId"])
+    # 分隔后展展，使用 groupby-集合 直接生成映射
+    exploded = (
+        df.assign(itemId=df["itemId"].str.split(";"))
+        .explode("itemId")
+        .dropna(subset=["itemId"])
+    )
+    exploded["itemId"] = exploded["itemId"].str.strip()
+    mapping = (
+        exploded.loc[exploded["itemId"] != ""]
+        .groupby("userId")["itemId"]
+        .apply(set)
+        .to_dict()
+    )
+    return mapping
 
 
 def preprocess_data(pairs):
     """
-    将用户-物品对列表转换为映射表，用于后续协同过滤计算。
+    将用户-物品对列表转换为用户到物品集合的映射。
 
     Args:
         pairs (list[tuple[str, str]]): 原始的用户-物品对列表。
@@ -41,10 +48,10 @@ def preprocess_data(pairs):
     Returns:
         dict[str, set[str]]: 用户到物品集合的映射字典。
     """
-    mapping = {}
+    mapping = defaultdict(set)
     for uid, iid in pairs:
-        mapping.setdefault(uid, set()).add(iid)
-    return mapping
+        mapping[uid].add(iid)
+    return dict(mapping)
 
 
 class UserCF:
@@ -75,29 +82,33 @@ class UserCF:
                 item_user[iid].add(uid)
 
         # 累计用户共现次数
+        co_counts = defaultdict(lambda: defaultdict(float))
         for users in item_user.values():
             user_list = list(users)
+            weight = (
+                1.0
+                if self.similarity == "cosine"
+                else 1.0 / math.log(1 + len(user_list))
+            )
             for i, u in enumerate(user_list):
-                for v in user_list[i+1:]:
-                    # 初始化行
-                    self.user_sim_matrix.setdefault(u, defaultdict(float))
-                    self.user_sim_matrix.setdefault(v, defaultdict(float))
-                    if self.similarity == 'cosine':
-                        weight = 1.0
-                    else:  # IIF 加权
-                        weight = 1.0 / math.log(1 + len(users))
-                    self.user_sim_matrix[u][v] += weight
-                    self.user_sim_matrix[v][u] += weight
+                u_dict = co_counts[u]
+                for v in user_list[i + 1 :]:
+                    u_dict[v] += weight
+                    co_counts[v][u] += weight
 
         # 余弦归一化
-        for u, related in self.user_sim_matrix.items():
-            nu = len(self.train_data.get(u, []))
+        item_count = {u: len(items) for u, items in self.train_data.items()}
+        for u, related in co_counts.items():
+            nu = item_count.get(u, 0)
+            if nu == 0:
+                continue
+            self.user_sim_matrix[u] = {}
             for v, cuv in related.items():
-                nv = len(self.train_data.get(v, []))
-                if nu > 0 and nv > 0:
-                    self.user_sim_matrix[u][v] = cuv / math.sqrt(nu * nv)
-                else:
-                    self.user_sim_matrix[u][v] = 0.0
+                nv = item_count.get(v, 0)
+                self.user_sim_matrix[u][v] = (
+                    cuv / math.sqrt(nu * nv) if nv > 0 else 0.0
+                )
+
 
     def train(self):
         """
@@ -120,10 +131,11 @@ class UserCF:
         rank = defaultdict(float)
         interacted = self.train_data.get(user, set())
         # 选取 K 个最相似用户
-        neighbors = sorted(
+        neighbors = heapq.nlargest(
+            K,
             self.user_sim_matrix.get(user, {}).items(),
-            key=itemgetter(1), reverse=True
-        )[:K]
+            key=itemgetter(1),
+        )
 
         # 汇总推荐分数
         for v, sim in neighbors:
@@ -133,7 +145,7 @@ class UserCF:
                 rank[iid] += sim
 
         # 返回前 N 个物品
-        return dict(sorted(rank.items(), key=itemgetter(1), reverse=True)[:N])
+        return dict(heapq.nlargest(N, rank.items(), key=itemgetter(1)))
 
     def recommend_users(self, user, N=5):
         """
@@ -147,7 +159,7 @@ class UserCF:
             list[str]: 按相似度降序排序的用户列表，长度不超过 N。
         """
         sims = self.user_sim_matrix.get(user, {})
-        return [uid for uid, _ in sorted(sims.items(), key=itemgetter(1), reverse=True)[:N]]
+        return [uid for uid, _ in heapq.nlargest(N, sims.items(), key=itemgetter(1))]
 
 
 def save_similar_users(filepath, model, users, N=5):
